@@ -16,6 +16,10 @@
 - Simulate partial failure and handle gracefully
 - Retry policy configuration
 
+## Architectural Point of View
+![arch](./archi-diagram.png?raw=true)
+
+
 ## Quick Start
 
 1. **Start Services:**
@@ -46,6 +50,12 @@ By the end of this lab, you will be able to:
 - **Handle partial failures**: Gracefully manage scenarios where some child workflows fail while others succeed
 - **Master error isolation**: Prevent failures in one child workflow from affecting others
 - **Design scalable architectures**: Build systems that can handle variable workloads through parallel execution
+
+## Sequence Diagram
+![arch](./seq-diagram.png?raw=true)
+
+## Fam out/ Fan in pattern:
+![arch](./focus-diagram.png?raw=true)
 
 ## 📚 Background
 

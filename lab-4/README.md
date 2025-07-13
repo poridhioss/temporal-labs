@@ -12,6 +12,10 @@
 
 A Temporal workflow example that demonstrates a long-running counter with signal and query capabilities.
 
+## Architectural Point of View
+![arch](./archi-diagram.png?raw=true)
+
+
 ## Quick Start
 
 1. **Navigate to the workflow directory:**
@@ -76,6 +80,10 @@ By the end of this lab, you will be able to:
 - **Create long-running workflows**: Build workflows that run indefinitely and maintain state
 - **Master CLI interactions**: Use Temporal CLI to send signals and execute queries
 - **Design interactive systems**: Build workflows that respond to external events and user interactions
+
+
+## Sequence Diagram:
+![arch](./seq-diagram.png?raw=true)
 
 ## 📚 Background
 
