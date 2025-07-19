@@ -17,7 +17,7 @@
 - Retry policy configuration
 
 ## Architectural Point of View
-![arch](./archi-diagram.png?raw=true)
+![arch](./lab5-Archi_diagram.svg?raw=true)
 
 
 ## Quick Start
@@ -55,8 +55,8 @@ By the end of this lab, you will be able to:
 ![arch](./seq-diagram.png?raw=true)
 
 ## Fam out/ Fan in pattern:
-![arch](./focus-diagram.png?raw=true)
-
+<!-- ![focus](./focus-diagram.png?raw=true) -->
+![focus](./focus_diagram.drawio.svg)
 ## 📚 Background
 
 ### Why Parent-Child Workflows Matter

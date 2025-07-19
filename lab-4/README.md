@@ -13,7 +13,7 @@
 A Temporal workflow example that demonstrates a long-running counter with signal and query capabilities.
 
 ## Architectural Point of View
-![arch](./archi-diagram.png?raw=true)
+![arch](./lab4_archi-diagram.svg?raw=true)
 
 
 ## Quick Start
