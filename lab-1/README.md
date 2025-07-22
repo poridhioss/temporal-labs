@@ -1,13 +1,12 @@
 # Lab 1: Introduction to Temporal
 
-## 🎯 Learning Objectives
+Welcome to Lab 1! In this lab, you'll learn how to deploy the Temporal orchestration platform on Amazon Web Services (AWS) using Docker and Docker Compose inside an EC2 instance. This guide is beginner-friendly and walks you through every step, from AWS setup to running Temporal and accessing its Web UI.
 
 By the end of this lab, you will be able to:
 - **Understand Temporal architecture**: Learn the core components and how they work together
-- **Set up Temporal server**: Deploy Temporal using Docker Compose in Poridhi Lab
+- **Set up Temporal server**: Deploy Temporal using Docker Compose on AWS EC2
 - **Explore the Web UI**: Navigate Temporal's dashboard and understand its features
 - **Use Temporal CLI**: Execute commands to manage namespaces and server operations
-- **Configure load balancers**: Set up external access for monitoring in Poridhi Lab
 - **Work with namespaces**: Create and manage isolated environments for applications
 
 ## 📚 Background
@@ -22,139 +21,150 @@ Temporal is an **open-source workflow orchestration platform** designed to build
 - **Visibility**: Rich monitoring and debugging capabilities
 - **Simplicity**: Complex distributed logic written as simple code
 
-### Core Architecture Components
+In this lab, you'll deploy Temporal to AWS so it can be accessed from anywhere. You'll set up the necessary AWS networking, launch an EC2 instance, install Docker and Docker Compose, and then run Temporal using Docker Compose. This is a great way to learn both Temporal and basic AWS cloud deployment!
 
-| Component | Purpose | Key Features |
-|-----------|---------|--------------|
-| **Temporal Server** | Central orchestration engine | Stores workflow state, manages task queues |
-| **Workflow** | Durable business logic | Defines process flow, handles failures |
-| **Activity** | Individual task execution | Stateless operations, can be retried |
-| **Worker** | Code execution environment | Polls for tasks, executes workflows/activities |
-| **Web UI** | Monitoring dashboard | Visualize executions, debug issues |
-| **CLI** | Command-line interface | Server management, namespace operations |
+---
 
-### Temporal Ecosystem Flow
-1. **Client** starts a workflow
-2. **Temporal Server** stores workflow state and creates tasks
-3. **Worker** polls for tasks and executes workflow/activity code
-4. **Web UI** provides visibility into all executions
-5. **CLI** enables administrative operations
+## Prerequisites
 
-## 🛠 Prerequisites
+Before you begin, make sure you have:
+- An AWS Account
+- AWS Console access (browser)
+- SSH client (Terminal on macOS/Linux, PuTTY or WSL on Windows)
+- Basic familiarity with AWS EC2 and networking (helpful, but not required)
 
-### Poridhi Lab Environment:
-- Access to Poridhi Lab with VS Code interface
-- **Docker & Docker Compose**: ✅ Pre-installed in Poridhi Lab
-- **Web Browser**: For accessing the Temporal Web UI through load balancer
-- **Terminal Access**: Available through VS Code integrated terminal
+---
 
-### Verify Prerequisites
+## Setting Up AWS Resources
+
+### 1. Creating a VPC
+1. Log in to the [AWS Console](https://console.aws.amazon.com/).
+2. Change the region to **Singapore (ap-southeast-1)** (top right corner).
+3. Navigate to **VPC Dashboard**.
+4. Click **Create VPC**.
+5. Enter:
+   - Name tag: `temporal-vpc-1`
+   - IPv4 CIDR block: `10.0.0.0/16`
+   - IPv6 CIDR block: No IPv6 CIDR block
+   - Tenancy: Default
+6. Click **Create VPC**.
+
+### 2. Creating Subnets
+1. In the VPC Dashboard, go to **Subnets** > **Create subnet**.
+2. Enter:
+   - VPC ID: Select your `temporal-vpc-1`
+   - Subnet name: `temporal-subnet-1`
+   - Availability Zone: e.g., `ap-southeast-1a`
+   - IPv4 subnet CIDR block: `10.0.1.0/24`
+3. Click **Create subnet**.
+4. Go to **Action > Edit Subnet Setting** and enable **auto-assign public IPv4 address**.
+
+### 3. Setting Up Internet Gateway
+1. Go to **Internet Gateways** > **Create internet gateway**.
+2. Name tag: `temporal-igw-1` > **Create internet gateway**.
+3. Select the new gateway > **Actions > Attach to VPC** > select `temporal-vpc-1` > **Attach**.
+
+### 4. Configuring Route Tables
+1. Go to **Route Tables** > **Create route table**.
+2. Name tag: `temporal-rt-1`, VPC: `temporal-vpc-1` > **Create**.
+3. Select your new route table > **Routes** tab > **Edit routes** > **Add route**:
+   - Destination: `0.0.0.0/0`
+   - Target: Select **Internet Gateway** and choose `temporal-igw-1`
+   - **Save changes**
+4. Go to **Subnet associations** > **Edit subnet associations** > select `temporal-subnet-1` > **Save**.
+
+### 5. Creating Security Groups
+1. Go to **Security Groups** > **Create security group**.
+2. Enter:
+   - Name: `temporal-sg-1`
+   - Description: Security group for Temporal
+   - VPC: `temporal-vpc-1`
+3. Configure **inbound rules**:
+   - Type: SSH, Port: 22, Source: Your IP
+   - Type: Custom TCP, Port: 7233, Source: 0.0.0.0/0 (Temporal API)
+   - Type: Custom TCP, Port: 8233, Source: 0.0.0.0/0 (Temporal Web UI)
+4. Configure **outbound rules**:
+   - Type: All traffic, Destination: 0.0.0.0/0
+5. Click **Create security group**.
+
+### 6. Launching an EC2 Instance
+1. Go to **EC2 Dashboard** > **Launch instances**.
+2. Name: `temporal-ec2-instance-1`
+3. AMI: **Ubuntu Server 22.04 LTS** (or latest)
+4. Instance type: `t2.micro` (Free tier eligible)
+5. Key pair: Create new or use existing (download and keep safe!)
+6. Network settings:
+   - Network: `temporal-vpc-1`
+   - Subnet: `temporal-subnet-1`
+   - Auto-assign Public IP: Enable
+   - Firewall: Select **existing security group** > `temporal-sg-1`
+7. Storage: Default (8GB SSD)
+8. Click **Launch Instance**.
+
+### 7. Connecting to the EC2 Instance
+1. Once running, select your instance and copy the **Public IPv4 address**.
+2. In your terminal, set permissions and connect:
+   ```bash
+   chmod 400 temporal-key-pair.pem
+   ssh -i "temporal-key-pair.pem" ubuntu@<your-instance-public-ip>
+   ```
+
+---
+
+## Deploying Temporal
+
+### 1. Setting Up the Environment
+Once connected to your EC2 instance:
+
 ```bash
-# Open VS Code terminal and verify Docker installation
-docker --version
-docker-compose --version
-docker ps
+# Update system packages
+sudo apt update
+sudo apt upgrade -y
+
+# Install Docker
+sudo apt install docker.io -y
+
+# Add your user to the docker group (so you don't need sudo for docker)
+sudo usermod -aG docker ubuntu
+
+# Install Docker Compose
+sudo apt install docker-compose -y
+
+# Apply group changes without logging out
+newgrp docker
 ```
 
-## 📁 Project Structure
+### 2. Running Docker Compose
+1. Create a directory for your Temporal project:
+   ```bash
+   mkdir temporal-lab && cd temporal-lab
+   ```
+2. Create a `docker-compose.yml` file:
+   ```yaml
+   version: '3.8'
+   services:
+     temporal:
+       image: temporalio/admin-tools:latest
+       ports:
+         - "7233:7233"  # Temporal Server API
+         - "8233:8233"  # Web UI Dashboard
+       entrypoint: []
+       command: ["temporal", "server", "start-dev", "--ui-port", "8233", "--ip", "0.0.0.0"]
+   ```
+3. Start Temporal:
+   ```bash
+   docker-compose up -d
+   ```
+4. Check that it's running:
+   ```bash
+   docker-compose ps
+   docker-compose logs -f temporal
+   ```
 
-You'll create the following structure in your lab-1 directory:
-
-```
-lab-1/
-├── docker-compose.yml      # Temporal server configuration
-└── README.md              # This documentation
-```
-
-## 🚀 Lab Implementation
-
-### Step 1: Set Up Project Structure
-
-Open VS Code terminal in Poridhi Lab and navigate to your lab-1 directory:
-
-```bash
-# Navigate to lab-1 directory
-cd lab-1
-
-# Verify you're in the correct location
-pwd
-```
-
-### Step 2: Create Docker Compose Configuration
-
-Create `docker-compose.yml` in the lab-1 directory:
-
-```yaml
-version: '3.8'
-
-services:
-  temporal:
-    image: temporalio/admin-tools:latest
-    ports:
-      - "7233:7233"  # Temporal Server API
-      - "8233:8233"  # Web UI Dashboard
-    entrypoint: []
-    command: ["temporal", "server", "start-dev", "--ui-port", "8233", "--ip", "0.0.0.0"]
-```
-
-#### Configuration Explanation:
-- **Image**: `temporalio/admin-tools:latest` - Includes Temporal server, CLI, and Web UI
-- **Port 7233**: Temporal Server API endpoint for client connections
-- **Port 8233**: Web UI dashboard for monitoring and debugging
-- **start-dev**: Development mode with in-memory storage (perfect for learning)
-- **--ip 0.0.0.0**: Binds to all interfaces for Docker networking
-
-### Step 3: Deploy Temporal Server
-
-```bash
-# Start Temporal server
-docker-compose up -d
-
-# Verify container is running
-docker-compose ps
-
-# Check server logs
-docker-compose logs -f temporal
-```
-
-Expected output: You should see Temporal server starting up with various initialization messages.
-
-![make-up](./make-up.png?raw=true)
-
-
-### Step 4: Configure Load Balancer for Web UI Access
-
-#### Get Network Information
-```bash
-# Get your lab instance IP address
-ifconfig eth0
-
-# Note the IP address for load balancer configuration
-```
-
-#### Set Up Load Balancer
-1. **Access Load Balancer Configuration** in Poridhi Lab interface
-2. **Create New Load Balancer**:
-   - **Enter IP**: Your lab instance eth0 IP address
-   - **Enter Port**: `8233`
-3. **Click Create**
-
-You'll receive a load balancer URL like:
-```
-https://[your-instance-id]-lb-[port].bm-southeast.lab.poridhi.io/
-```
-
-### Step 5: Explore the Web UI
-
-#### Access the Dashboard
-1. **Open Temporal Web UI**: Use your load balancer URL in a web browser
-2. **Explore the Interface**: You should see the Temporal dashboard with:
-   - Namespace selector (default: "default")
-   - Navigation sidebar with sections:
-     - **Workflows**: View workflow executions
-     - **Schedules**: Manage scheduled workflows
-     - **Task Queues**: Monitor work distribution
-     - **Cluster**: Server health and configuration
+### 3. Accessing the Temporal Web UI
+- In your AWS EC2 dashboard, find your instance's **Public IPv4 address**.
+- Open your browser and go to: `http://<your-instance-public-ip>:8233`
+- You should see the Temporal Web UI dashboard!
 
 ![dashboard](./dashboard.png?raw=true)
 
@@ -167,7 +177,9 @@ https://[your-instance-id]-lb-[port].bm-southeast.lab.poridhi.io/
 | **Namespaces** | Switch between environments | Default namespace pre-configured |
 | **Cluster** | Server health monitoring | Server status and metrics |
 
-### Step 6: Use Temporal CLI Commands
+---
+
+## Using Temporal CLI and Namespaces
 
 The Temporal CLI is included in the Docker container. Let's explore key commands:
 
@@ -212,16 +224,16 @@ docker-compose exec temporal temporal namespace list
 docker-compose exec temporal temporal namespace describe --namespace my-lab-app
 ```
 
-### Step 7: Explore Namespaces in Web UI
+### Explore Namespaces in Web UI
 
-1. **Refresh Web UI**: Go back to your load balancer URL
+1. **Refresh Web UI**: Go back to your browser tab
 2. **Switch Namespaces**: Use the namespace dropdown at the top
 3. **Observe Changes**: Notice how you can now select different namespaces:
    - `default` (pre-existing)
    - `my-lab-app` (created by you)
    - `production-app` (if created)
 
-### Step 8: Advanced CLI Exploration
+### Advanced CLI Exploration
 
 #### Task Queue Operations
 ```bash
@@ -247,7 +259,7 @@ docker-compose exec temporal temporal server --version
 
 ### What You've Accomplished
 1. **Deployed Temporal Server**: Running in development mode with in-memory storage
-2. **Configured External Access**: Load balancer provides web access
+2. **Configured External Access**: Access via EC2 public IP
 3. **Explored Web UI**: Learned about monitoring capabilities
 4. **Used CLI Tools**: Managed namespaces and server operations
 5. **Created Isolation**: Set up separate namespaces for different applications
@@ -255,19 +267,18 @@ docker-compose exec temporal temporal server --version
 ### System Architecture in Your Lab
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Web Browser   │    │  Load Balancer   │    │  Temporal       │
-│                 │◄──►│                  │◄──►│  Server         │
-│  (Your Computer)│    │  (Poridhi Lab)   │    │  (Docker)       │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                                        │
-                                                        ▼
-                                               ┌─────────────────┐
-                                               │   Namespaces    │
-                                               │  - default      │
-                                               │  - my-lab-app   │
-                                               │  - production.. │
-                                               └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐
+│   Web Browser   │    │  Temporal       │
+│  (Your Computer)│<--►│  Server (EC2)   │
+└─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │   Namespaces    │
+                     │  - default      │
+                     │  - my-lab-app   │
+                     │  - production.. │
+                     └─────────────────┘
 ```
 
 ### Key Concepts Demonstrated
@@ -311,3 +322,23 @@ docker-compose exec temporal temporal namespace update \
 - Switch between namespaces and observe how the view changes
 - Check the Cluster section for server metrics
 - Explore the empty Workflows section (you'll fill this in later labs)
+
+---
+
+## Troubleshooting
+- **Can't connect via SSH?**
+  - Check your security group allows SSH (port 22) from your IP
+  - Make sure you used the correct key pair and permissions
+- **Can't access Temporal Web UI?**
+  - Check security group allows port 8233 from your IP
+  - Make sure Temporal is running (`docker-compose ps`)
+- **Docker permission errors?**
+  - Run `newgrp docker` or log out and back in
+- **Out of memory or disk?**
+  - Use a larger EC2 instance or increase storage
+
+---
+
+## Conclusion
+
+Congratulations! 🎉 You've deployed Temporal to AWS using Docker Compose on an EC2 instance. You now have a cloud-based orchestration platform ready for workflow development and experimentation.
