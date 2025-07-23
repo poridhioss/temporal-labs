@@ -8,6 +8,209 @@
 - Implement multi-trigger workflow architectures
 - Handle external events and webhook integrations
 
+In this lab, you'll deploy Temporal to AWS so it can be accessed from anywhere. You'll set up the necessary AWS networking, launch an EC2 instance, install Docker and Docker Compose, and then run Temporal using Docker Compose. This is a great way to learn both Temporal and basic AWS cloud deployment!
+
+---
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- An AWS Account with configured credentials
+- Pulumi CLI installed ([installation guide](https://www.pulumi.com/docs/get-started/install/))
+- Python 3.7+ installed
+- SSH client (Terminal on macOS/Linux, PuTTY or WSL on Windows)
+- AWS CLI installed
+- An AWS key pair created in the Singapore region (`ap-southeast-1`)
+
+---
+
+## Setting Up AWS Resources with Pulumi
+
+### 1. Install Pulumi (if not already installed)
+
+```bash
+curl -fsSL https://get.pulumi.com | sh
+```
+
+### 2. Configure AWS CLI
+
+Configure AWS CLI with the necessary credentials. Run the following command and follow the prompts:
+
+```bash
+aws configure
+```
+
+You will be prompted for:
+- AWS Access Key ID
+- AWS Secret Access Key
+- Default region name (e.g., `ap-southeast-1`)
+- Default output format (e.g., `json`)
+
+Fill in the details using the generated credentials in Poridhi Labs.
+
+### 3. Set Up a Pulumi Project
+
+**Install Python virtual environment:**
+
+```bash
+sudo apt update
+sudo apt install python3.8-venv
+```
+
+**Create a new directory and initialize a Pulumi project:**
+
+```bash
+mkdir ssh-lab-pulumi && cd ssh-lab-pulumi
+pulumi new aws-python
+```
+
+This command creates a new directory with the basic structure for a Pulumi project. Follow the prompts to set up your project:
+- Project name: `temporal-lab`
+- Project description: `Temporal Lab Infrastructure`
+- Stack name: `dev`
+- AWS region: `ap-southeast-1`
+
+### 4. Create AWS Key Pair
+
+Create a new key pair for your instances using the following command:
+
+```bash
+aws ec2 create-key-pair --key-name MyKeyPair --query 'KeyMaterial' --output text > MyKeyPair.pem
+```
+
+Set file permissions of the key file:
+
+```bash
+chmod 400 MyKeyPair.pem
+```
+
+### 5. Configure Your Infrastructure
+
+Replace the contents of `__main__.py` with the following code:
+
+```python
+import pulumi
+import pulumi_aws as aws
+
+# Create a VPC
+vpc = aws.ec2.Vpc("my-vpc",
+   cidr_block="10.0.0.0/16",
+   enable_dns_hostnames=True,
+   enable_dns_support=True,
+   tags={
+      "Name": "my-vpc",
+   })
+
+# Create a public subnet
+public_subnet = aws.ec2.Subnet("my-subnet",
+   vpc_id=vpc.id,
+   cidr_block="10.0.1.0/24",
+   availability_zone="ap-southeast-1a",
+   map_public_ip_on_launch=True,
+   tags={
+      "Name": "my-subnet",
+   })
+
+# Create an Internet Gateway
+internet_gateway = aws.ec2.InternetGateway("my-igw",
+   vpc_id=vpc.id,
+   tags={
+      "Name": "my-igw",
+   })
+
+# Create a Route Table
+public_route_table = aws.ec2.RouteTable("my-rt",
+   vpc_id=vpc.id,
+   tags={
+      "Name": "my-rt",
+   })
+
+# Create a route in the Route Table for the Internet Gateway
+route = aws.ec2.Route("igw-route",
+   route_table_id=public_route_table.id,
+   destination_cidr_block="0.0.0.0/0",
+   gateway_id=internet_gateway.id)
+
+# Associate Route Table with Public Subnet
+rt_association = aws.ec2.RouteTableAssociation("rt-association",
+   subnet_id=public_subnet.id,
+   route_table_id=public_route_table.id)
+
+# Create a Security Group for the SSH Lab Instance
+my_security_group = aws.ec2.SecurityGroup("my-secgrp",
+   vpc_id=vpc.id,
+   description="Allow SSH access",
+   ingress=[
+    # SSH access from anywhere
+    {"protocol": "tcp", "from_port": 22, "to_port": 22, "cidr_blocks": ["0.0.0.0/0"]},
+    # Temporal API
+    {"protocol": "tcp", "from_port": 7233, "to_port": 7233, "cidr_blocks": ["0.0.0.0/0"]},
+    # Temporal Web UI
+    {"protocol": "tcp", "from_port": 8233, "to_port": 8233, "cidr_blocks": ["0.0.0.0/0"]}
+],
+   egress=[
+      # Allow all outbound traffic
+      {"protocol": "-1", "from_port": 0, "to_port": 0, "cidr_blocks": ["0.0.0.0/0"]}
+   ],
+   tags={
+      "Name": "my-secgrp",
+   })
+
+# Define an AMI for the EC2 instance (Ubuntu 24.04 LTS)
+ami_id = "ami-01811d4912b4ccb26"  # Ubuntu 24.04 LTS, update if needed for your region
+
+# Create the SSH Lab EC2 Instance
+ssh_lab_instance = aws.ec2.Instance("my-instance",
+   instance_type="t2.micro",
+   vpc_security_group_ids=[my_security_group.id],
+   ami=ami_id,
+   subnet_id=public_subnet.id,
+   key_name="MyKeyPair",
+   associate_public_ip_address=True,
+   tags={
+      "Name": "my-instance",
+      "Environment": "Lab",
+      "Project": "Temporal-Lab"
+   })
+
+# Export the relevant outputs
+pulumi.export("vpc_id", vpc.id)
+pulumi.export("subnet_id", public_subnet.id)
+pulumi.export("security_group_id", my_security_group.id)
+pulumi.export("instance_id", ssh_lab_instance.id)
+pulumi.export("public_ip", ssh_lab_instance.public_ip)
+```
+
+### 6. Deploy the Infrastructure
+
+Deploy the infrastructure:
+
+```bash
+pulumi up
+```
+
+This will create the necessary resources in AWS. When prompted, select **yes** to confirm the deployment.
+
+**Note:** Remember the public IP address of the instance for later use. You can view it anytime by running:
+
+```bash
+pulumi stack output public_ip
+```
+
+### 7. Connect to the EC2 Instance
+
+Connect to the EC2 instance using SSH:
+
+```bash
+ssh -i MyKeyPair.pem ubuntu@<public_ip>
+```
+
+Replace `<public_ip>` with the actual public IP address from the Pulumi output.
+
+---
+With your environment set up, you’re now ready to explore even more powerful features of Temporal. In this lab, you’ll work with cron workflows to automate recurring tasks and see how Temporal handles scheduled executions. This will deepen your understanding of Temporal’s scheduling capabilities and how to build robust, time-based automation.
+
 # Lab 6: Cron Scheduling & External Triggers
 
 **Goal:** Build sophisticated external integration systems using cron scheduling, HTTP triggers, and real-time signal communication.
