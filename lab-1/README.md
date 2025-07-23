@@ -2,24 +2,31 @@
 
 Welcome to Lab 1! In this lab, you'll learn how to deploy the Temporal orchestration platform on Amazon Web Services (AWS) using Docker and Docker Compose inside an EC2 instance. This guide is beginner-friendly and walks you through every step, from AWS setup to running Temporal and accessing its Web UI.
 
+---
+
+## Objectives
+
 By the end of this lab, you will be able to:
-- **Understand Temporal architecture**: Learn the core components and how they work together
-- **Set up Temporal server**: Deploy Temporal using Docker Compose on AWS EC2
-- **Explore the Web UI**: Navigate Temporal's dashboard and understand its features
-- **Use Temporal CLI**: Execute commands to manage namespaces and server operations
-- **Work with namespaces**: Create and manage isolated environments for applications
+
+- **Understand Temporal architecture:** Learn the core components and how they work together
+- **Set up Temporal server:** Deploy Temporal using Docker Compose on AWS EC2
+- **Explore the Web UI:** Navigate Temporal's dashboard and understand its features
+- **Use Temporal CLI:** Execute commands to manage namespaces and server operations
+- **Work with namespaces:** Create and manage isolated environments for applications
+
+---
 
 ## 📚 Background
 
 ### What is Temporal?
-Temporal is an **open-source workflow orchestration platform** designed to build durable, scalable, and fault-tolerant applications. It enables developers to write complex business logic as workflows that can run for days, weeks, or even months, with built-in reliability features.
+Temporal is an open-source workflow orchestration platform designed to build durable, scalable, and fault-tolerant applications. It enables developers to write complex business logic as workflows that can run for days, weeks, or even months, with built-in reliability features.
 
 ### Why Use Temporal?
-- **Durability**: Workflows survive failures and restarts
-- **Reliability**: Automatic retries and error handling
-- **Scalability**: Distribute work across multiple workers
-- **Visibility**: Rich monitoring and debugging capabilities
-- **Simplicity**: Complex distributed logic written as simple code
+- **Durability:** Workflows survive failures and restarts
+- **Reliability:** Automatic retries and error handling
+- **Scalability:** Distribute work across multiple workers
+- **Visibility:** Rich monitoring and debugging capabilities
+- **Simplicity:** Complex distributed logic written as simple code
 
 In this lab, you'll deploy Temporal to AWS so it can be accessed from anywhere. You'll set up the necessary AWS networking, launch an EC2 instance, install Docker and Docker Compose, and then run Temporal using Docker Compose. This is a great way to learn both Temporal and basic AWS cloud deployment!
 
@@ -28,86 +35,198 @@ In this lab, you'll deploy Temporal to AWS so it can be accessed from anywhere. 
 ## Prerequisites
 
 Before you begin, make sure you have:
-- An AWS Account
-- AWS Console access (browser)
+
+- An AWS Account with configured credentials
+- Pulumi CLI installed ([installation guide](https://www.pulumi.com/docs/get-started/install/))
+- Python 3.7+ installed
 - SSH client (Terminal on macOS/Linux, PuTTY or WSL on Windows)
-- Basic familiarity with AWS EC2 and networking (helpful, but not required)
+- AWS CLI installed
+- An AWS key pair created in the Singapore region (`ap-southeast-1`)
 
 ---
 
-## Setting Up AWS Resources
+## Setting Up AWS Resources with Pulumi
 
-### 1. Creating a VPC
-1. Log in to the [AWS Console](https://console.aws.amazon.com/).
-2. Change the region to **Singapore (ap-southeast-1)** (top right corner).
-3. Navigate to **VPC Dashboard**.
-4. Click **Create VPC**.
-5. Enter:
-   - Name tag: `temporal-vpc-1`
-   - IPv4 CIDR block: `10.0.0.0/16`
-   - IPv6 CIDR block: No IPv6 CIDR block
-   - Tenancy: Default
-6. Click **Create VPC**.
+### 1. Install Pulumi (if not already installed)
 
-### 2. Creating Subnets
-1. In the VPC Dashboard, go to **Subnets** > **Create subnet**.
-2. Enter:
-   - VPC ID: Select your `temporal-vpc-1`
-   - Subnet name: `temporal-subnet-1`
-   - Availability Zone: e.g., `ap-southeast-1a`
-   - IPv4 subnet CIDR block: `10.0.1.0/24`
-3. Click **Create subnet**.
-4. Go to **Action > Edit Subnet Setting** and enable **auto-assign public IPv4 address**.
+```bash
+curl -fsSL https://get.pulumi.com | sh
+```
 
-### 3. Setting Up Internet Gateway
-1. Go to **Internet Gateways** > **Create internet gateway**.
-2. Name tag: `temporal-igw-1` > **Create internet gateway**.
-3. Select the new gateway > **Actions > Attach to VPC** > select `temporal-vpc-1` > **Attach**.
+### 2. Configure AWS CLI
 
-### 4. Configuring Route Tables
-1. Go to **Route Tables** > **Create route table**.
-2. Name tag: `temporal-rt-1`, VPC: `temporal-vpc-1` > **Create**.
-3. Select your new route table > **Routes** tab > **Edit routes** > **Add route**:
-   - Destination: `0.0.0.0/0`
-   - Target: Select **Internet Gateway** and choose `temporal-igw-1`
-   - **Save changes**
-4. Go to **Subnet associations** > **Edit subnet associations** > select `temporal-subnet-1` > **Save**.
+Configure AWS CLI with the necessary credentials. Run the following command and follow the prompts:
 
-### 5. Creating Security Groups
-1. Go to **Security Groups** > **Create security group**.
-2. Enter:
-   - Name: `temporal-sg-1`
-   - Description: Security group for Temporal
-   - VPC: `temporal-vpc-1`
-3. Configure **inbound rules**:
-   - Type: SSH, Port: 22, Source: Your IP
-   - Type: Custom TCP, Port: 7233, Source: 0.0.0.0/0 (Temporal API)
-   - Type: Custom TCP, Port: 8233, Source: 0.0.0.0/0 (Temporal Web UI)
-4. Configure **outbound rules**:
-   - Type: All traffic, Destination: 0.0.0.0/0
-5. Click **Create security group**.
+```bash
+aws configure
+```
 
-### 6. Launching an EC2 Instance
-1. Go to **EC2 Dashboard** > **Launch instances**.
-2. Name: `temporal-ec2-instance-1`
-3. AMI: **Ubuntu Server 22.04 LTS** (or latest)
-4. Instance type: `t2.micro` (Free tier eligible)
-5. Key pair: Create new or use existing (download and keep safe!)
-6. Network settings:
-   - Network: `temporal-vpc-1`
-   - Subnet: `temporal-subnet-1`
-   - Auto-assign Public IP: Enable
-   - Firewall: Select **existing security group** > `temporal-sg-1`
-7. Storage: Default (8GB SSD)
-8. Click **Launch Instance**.
+You will be prompted for:
+- AWS Access Key ID
+- AWS Secret Access Key
+- Default region name (e.g., `ap-southeast-1`)
+- Default output format (e.g., `json`)
 
-### 7. Connecting to the EC2 Instance
-1. Once running, select your instance and copy the **Public IPv4 address**.
-2. In your terminal, set permissions and connect:
-   ```bash
-   chmod 400 temporal-key-pair.pem
-   ssh -i "temporal-key-pair.pem" ubuntu@<your-instance-public-ip>
-   ```
+Fill in the details using the generated credentials in Poridhi Labs.
+
+### 3. Set Up a Pulumi Project
+
+**Install Python virtual environment:**
+
+```bash
+sudo apt update
+sudo apt install python3.8-venv
+```
+
+**Create a new directory and initialize a Pulumi project:**
+
+```bash
+mkdir ssh-lab-pulumi && cd ssh-lab-pulumi
+pulumi new aws-python
+```
+
+This command creates a new directory with the basic structure for a Pulumi project. Follow the prompts to set up your project:
+- Project name: `temporal-lab`
+- Project description: `Temporal Lab Infrastructure`
+- Stack name: `dev`
+- AWS region: `ap-southeast-1`
+
+### 4. Create AWS Key Pair
+
+Create a new key pair for your instances using the following command:
+
+```bash
+aws ec2 create-key-pair --key-name MyKeyPair --query 'KeyMaterial' --output text > MyKeyPair.pem
+```
+
+Set file permissions of the key file:
+
+```bash
+chmod 400 MyKeyPair.pem
+```
+
+### 5. Configure Your Infrastructure
+
+Replace the contents of `__main__.py` with the following code:
+
+```python
+import pulumi
+import pulumi_aws as aws
+
+# Create a VPC
+vpc = aws.ec2.Vpc("my-vpc",
+   cidr_block="10.0.0.0/16",
+   enable_dns_hostnames=True,
+   enable_dns_support=True,
+   tags={
+      "Name": "my-vpc",
+   })
+
+# Create a public subnet
+public_subnet = aws.ec2.Subnet("my-subnet",
+   vpc_id=vpc.id,
+   cidr_block="10.0.1.0/24",
+   availability_zone="ap-southeast-1a",
+   map_public_ip_on_launch=True,
+   tags={
+      "Name": "my-subnet",
+   })
+
+# Create an Internet Gateway
+internet_gateway = aws.ec2.InternetGateway("my-igw",
+   vpc_id=vpc.id,
+   tags={
+      "Name": "my-igw",
+   })
+
+# Create a Route Table
+public_route_table = aws.ec2.RouteTable("my-rt",
+   vpc_id=vpc.id,
+   tags={
+      "Name": "my-rt",
+   })
+
+# Create a route in the Route Table for the Internet Gateway
+route = aws.ec2.Route("igw-route",
+   route_table_id=public_route_table.id,
+   destination_cidr_block="0.0.0.0/0",
+   gateway_id=internet_gateway.id)
+
+# Associate Route Table with Public Subnet
+rt_association = aws.ec2.RouteTableAssociation("rt-association",
+   subnet_id=public_subnet.id,
+   route_table_id=public_route_table.id)
+
+# Create a Security Group for the SSH Lab Instance
+my_security_group = aws.ec2.SecurityGroup("my-secgrp",
+   vpc_id=vpc.id,
+   description="Allow SSH access",
+   ingress=[
+    # SSH access from anywhere
+    {"protocol": "tcp", "from_port": 22, "to_port": 22, "cidr_blocks": ["0.0.0.0/0"]},
+    # Temporal API
+    {"protocol": "tcp", "from_port": 7233, "to_port": 7233, "cidr_blocks": ["0.0.0.0/0"]},
+    # Temporal Web UI
+    {"protocol": "tcp", "from_port": 8233, "to_port": 8233, "cidr_blocks": ["0.0.0.0/0"]}
+],
+   egress=[
+      # Allow all outbound traffic
+      {"protocol": "-1", "from_port": 0, "to_port": 0, "cidr_blocks": ["0.0.0.0/0"]}
+   ],
+   tags={
+      "Name": "my-secgrp",
+   })
+
+# Define an AMI for the EC2 instance (Ubuntu 24.04 LTS)
+ami_id = "ami-01811d4912b4ccb26"  # Ubuntu 24.04 LTS, update if needed for your region
+
+# Create the SSH Lab EC2 Instance
+ssh_lab_instance = aws.ec2.Instance("my-instance",
+   instance_type="t2.micro",
+   vpc_security_group_ids=[my_security_group.id],
+   ami=ami_id,
+   subnet_id=public_subnet.id,
+   key_name="MyKeyPair",
+   associate_public_ip_address=True,
+   tags={
+      "Name": "my-instance",
+      "Environment": "Lab",
+      "Project": "Temporal-Lab"
+   })
+
+# Export the relevant outputs
+pulumi.export("vpc_id", vpc.id)
+pulumi.export("subnet_id", public_subnet.id)
+pulumi.export("security_group_id", my_security_group.id)
+pulumi.export("instance_id", ssh_lab_instance.id)
+pulumi.export("public_ip", ssh_lab_instance.public_ip)
+```
+
+### 6. Deploy the Infrastructure
+
+Deploy the infrastructure:
+
+```bash
+pulumi up
+```
+
+This will create the necessary resources in AWS. When prompted, select **yes** to confirm the deployment.
+
+**Note:** Remember the public IP address of the instance for later use. You can view it anytime by running:
+
+```bash
+pulumi stack output public_ip
+```
+
+### 7. Connect to the EC2 Instance
+
+Connect to the EC2 instance using SSH:
+
+```bash
+ssh -i MyKeyPair.pem ubuntu@<public_ip>
+```
+
+Replace `<public_ip>` with the actual public IP address from the Pulumi output.
 
 ---
 
