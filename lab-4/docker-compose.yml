@@ -1,28 +1,100 @@
-version: '3.8'
+# version: '3.8'
+
+# services:
+#   temporal:
+#     image: temporalio/admin-tools:latest
+#     ports:
+#       - "7233:7233"
+#       - "8233:8233"
+#     entrypoint: []
+#     command: ["temporal", "server", "start-dev", "--ui-port", "8233", "--ip", "0.0.0.0"]
+#     networks:
+#       - temporal-net     # attach to the shared network
+
+  # worker:
+  #   build: ./longRunningCounterWorkflow
+  #   volumes:
+  #     - ./longRunningCounterWorkflow:/app
+  #   depends_on:
+  #     - temporal
+  #   environment:
+  #     - TEMPORAL_ADDRESS=temporal:7233
+  #   # command: ["python", "-u", "worker.py"]
+  #   networks:
+  #     - temporal-net     # attach to the shared network
+
+# networks:
+#   temporal-net:          # declares the network so Docker Compose creates it
+#     driver: bridge       # default driver (could omit—bridge is the default)
+
+version: "3.9"
+
+networks:
+  temporal-net:
 
 services:
-  temporal:
-    image: temporalio/admin-tools:latest
-    ports:
-      - "7233:7233"
-      - "8233:8233"
-    entrypoint: []
-    command: ["temporal", "server", "start-dev", "--ui-port", "8233", "--ip", "0.0.0.0"]
-    networks:
-      - temporal-net     # attach to the shared network
+  # ───────── Postgres (backing store) ─────────
+  postgres:
+    image: postgres:12-alpine
+    container_name: temporal-postgres
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    networks: [temporal-net]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
+  # ───────── Temporal Server (auto-setup) ─────
+  temporal:
+    image: temporalio/auto-setup:1.28.0          # any 1.24+ is fine
+    container_name: temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_SEEDS=postgres                 # host of DB container :contentReference[oaicite:0]{index=0}
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    ports:
+      - "7233:7233"                              # gRPC / SDK
+    networks: [temporal-net]
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 --ns default namespace list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+  # ───────── Temporal Web UI (stand-alone) ────
+  temporal-ui:
+    image: temporalio/ui:2.39.0                  # latest at time of writing :contentReference[oaicite:1]{index=1}
+    container_name: temporal-ui
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233           # tell UI where the server lives
+    ports:
+      - "8080:8080"                              # http://localhost:8080
+    networks: [temporal-net]
+
+    # ───────── Worker (Python) ───────────────────
   worker:
     build: ./longRunningCounterWorkflow
     volumes:
       - ./longRunningCounterWorkflow:/app
     depends_on:
-      - temporal
+      temporal:
+        condition: service_healthy
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
     # command: ["python", "-u", "worker.py"]
-    networks:
-      - temporal-net     # attach to the shared network
-
-networks:
-  temporal-net:          # declares the network so Docker Compose creates it
-    driver: bridge       # default driver (could omit—bridge is the default)
+    networks: [temporal-net]
+    # command: ["python", "-u", "worker.py"]
