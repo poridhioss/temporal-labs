@@ -1,0 +1,96 @@
+version: "3.9"
+
+networks:
+  temporal-net:
+
+services:
+  # PostgreSQL for Temporal and application data
+  postgres:
+    image: postgres:12-alpine
+    container_name: temporal-postgres
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks: [temporal-net]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Temporal Server
+  temporal:
+    image: temporalio/auto-setup:1.28.0
+    container_name: temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    ports:
+      - "7233:7233"
+    networks: [temporal-net]
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 --ns default namespace list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:2.39.0
+    container_name: temporal-ui
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8080:8080"
+    networks: [temporal-net]
+
+  # Order Processing Worker
+  worker:
+    build: ./order-service
+    container_name: order-worker
+    volumes:
+      - ./order-service:/app
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    command: ["python", "-u", "worker.py"]
+    networks: [temporal-net]
+
+  # FastAPI Service
+  api:
+    build: ./api-service
+    container_name: order-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api-service:/app
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    networks: [temporal-net] 
