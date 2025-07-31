@@ -3,11 +3,21 @@ import random
 import uuid
 from datetime import datetime
 
-from models.order_models import Order, PaymentResult
+from models.order_models import Order, PaymentResult, OrderItem, OrderStatus
 
 @activity.defn
-async def process_payment(order: Order) -> PaymentResult:
+async def process_payment(order_data: dict) -> PaymentResult:
     """Simulate payment processing"""
+    # Convert dictionary to Order object
+    order = Order(
+        order_id=order_data["order_id"],
+        customer_email=order_data["customer_email"],
+        items=[OrderItem(**item) for item in order_data["items"]],
+        total_amount=order_data["total_amount"],
+        status=OrderStatus(order_data["status"]),
+        created_at=order_data["created_at"]
+    )
+    
     activity.logger.info(f"Processing payment for order {order.order_id}, amount: ${order.total_amount}")
     
     # Simulate payment gateway call

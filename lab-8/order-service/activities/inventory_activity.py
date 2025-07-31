@@ -5,11 +5,21 @@ from datetime import datetime, timedelta
 from typing import List
 import os
 
-from models.order_models import Order, ReservationResult
+from models.order_models import Order, ReservationResult, OrderItem, OrderStatus
 
 @activity.defn
-async def reserve_stock(order: Order) -> ReservationResult:
+async def reserve_stock(order_data: dict) -> ReservationResult:
     """Reserve inventory for order"""
+    # Convert dictionary to Order object
+    order = Order(
+        order_id=order_data["order_id"],
+        customer_email=order_data["customer_email"],
+        items=[OrderItem(**item) for item in order_data["items"]],
+        total_amount=order_data["total_amount"],
+        status=OrderStatus(order_data["status"]),
+        created_at=order_data["created_at"]
+    )
+    
     conn = await asyncpg.connect(
         host=os.getenv('POSTGRES_HOST', 'postgres'),
         user=os.getenv('POSTGRES_USER', 'temporal'),

@@ -2,11 +2,21 @@ from temporalio import activity
 import uuid
 from datetime import datetime
 
-from models.order_models import Order, ConfirmationResult
+from models.order_models import Order, ConfirmationResult, OrderItem, OrderStatus
 
 @activity.defn
-async def send_confirmation(order: Order) -> ConfirmationResult:
+async def send_confirmation(order_data: dict) -> ConfirmationResult:
     """Send order confirmation email"""
+    # Convert dictionary to Order object
+    order = Order(
+        order_id=order_data["order_id"],
+        customer_email=order_data["customer_email"],
+        items=[OrderItem(**item) for item in order_data["items"]],
+        total_amount=order_data["total_amount"],
+        status=OrderStatus(order_data["status"]),
+        created_at=order_data["created_at"]
+    )
+    
     try:
         # Generate confirmation number
         confirmation_number = f"ORD-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"

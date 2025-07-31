@@ -2,11 +2,23 @@ from temporalio import activity
 import asyncpg
 import os
 
-from models.order_models import Order, ValidationResult, OrderItem
+from decimal import Decimal
+
+from models.order_models import Order, ValidationResult, OrderItem, OrderStatus
 
 @activity.defn
-async def validate_order_items(order: Order) -> ValidationResult:
+async def validate_order_items(order_data: dict) -> ValidationResult:
     """Validate order items against inventory"""
+    # Convert dictionary to Order object
+    order = Order(
+        order_id=order_data["order_id"],
+        customer_email=order_data["customer_email"],
+        items=[OrderItem(**item) for item in order_data["items"]],
+        total_amount=order_data["total_amount"],
+        status=OrderStatus(order_data["status"]),
+        created_at=order_data["created_at"]
+    )
+    
     errors = []
     validated_items = []
     
@@ -42,7 +54,7 @@ async def validate_order_items(order: Order) -> ValidationResult:
                 continue
             
             # Validate price hasn't changed significantly
-            if abs(row['price'] - item.price) > 0.01:
+            if abs(row['price'] - Decimal(str(item.price))) > Decimal('0.01'):
                 errors.append(
                     f"Price mismatch for {row['product_name']}. "
                     f"Expected: ${item.price}, Current: ${row['price']}"

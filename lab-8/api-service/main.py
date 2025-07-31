@@ -84,13 +84,14 @@ async def create_order(order_request: OrderRequest):
             })
         
         # Create order object
+        current_time = datetime.now()
         order_data = {
             "order_id": order_id,
             "customer_email": order_request.customer_email,
             "items": order_items,
             "total_amount": total,
             "status": "pending",
-            "created_at": datetime.now()
+            "created_at": current_time.isoformat()
         }
         
         # Save order to database
@@ -103,13 +104,13 @@ async def create_order(order_request: OrderRequest):
             items=[OrderItem(**item) for item in order_items],
             total_amount=total,
             status=OrderStatus.PENDING,
-            created_at=datetime.now()
+            created_at=None  # Let the model handle it
         )
 
         # Start the workflow
         handle = await temporal_client.start_workflow(
             OrderWorkflow.process_order,
-            workflow_order,
+            workflow_order.to_dict(),  # Convert to dict for JSON serialization
             id=f"order-workflow-{order_id}",
             task_queue="order-processing-queue",
         )

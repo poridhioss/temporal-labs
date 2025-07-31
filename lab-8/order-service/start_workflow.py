@@ -21,7 +21,7 @@ async def main():
         ],
         total_amount=1399.97,
         status=OrderStatus.PENDING,
-        created_at=datetime.now()
+        created_at=None  # Let the model handle it
     )
     
     print(f"🛒 Starting order workflow for order {test_order.order_id}")
@@ -31,7 +31,7 @@ async def main():
     # Start workflow
     handle = await client.start_workflow(
         OrderWorkflow.process_order,
-        test_order,
+        test_order.to_dict(),  # Convert to dict for JSON serialization
         id=f"order-workflow-{test_order.order_id}",
         task_queue="order-processing-queue"
     )

@@ -9,6 +9,7 @@ from workflows.child_workflows import ValidationWorkflow, PaymentWorkflow
 from activities.inventory_activity import reserve_stock, release_stock
 from activities.notification_activity import send_confirmation
 from activities.status_activity import update_order_status_in_db
+from models.order_models import OrderItem
 
 @workflow.defn
 class OrderWorkflow:
@@ -17,15 +18,25 @@ class OrderWorkflow:
         self.reservation_ids = []
         
     @workflow.run
-    async def process_order(self, order: Order) -> dict:
+    async def process_order(self, order_data: dict) -> dict:
         """Main order processing workflow"""
+        # Convert dictionary to Order object
+        order = Order(
+            order_id=order_data["order_id"],
+            customer_email=order_data["customer_email"],
+            items=[OrderItem(**item) for item in order_data["items"]],
+            total_amount=order_data["total_amount"],
+            status=OrderStatus(order_data["status"]),
+            created_at=order_data["created_at"]
+        )
+        
         workflow.logger.info(f"Starting order processing for {order.order_id}")
         
         try:
             # Step 1: Validate Order using child workflow
             validation_result = await workflow.execute_child_workflow(
                 ValidationWorkflow.run,
-                order,
+                order_data,  # Pass the dictionary
                 id=f"validation-{order.order_id}",
                 retry_policy=RetryPolicy(maximum_attempts=3)
             )
@@ -55,7 +66,7 @@ class OrderWorkflow:
             # Step 2: Reserve Stock
             reservation_result = await workflow.execute_activity(
                 reserve_stock,
-                order,
+                order_data,  # Pass the dictionary
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
@@ -89,7 +100,7 @@ class OrderWorkflow:
             )
             payment_result = await workflow.execute_child_workflow(
                 PaymentWorkflow.run,
-                order,
+                order_data,  # Pass the dictionary
                 id=f"payment-{order.order_id}",
                 retry_policy=RetryPolicy(maximum_attempts=1)
             )
@@ -121,7 +132,7 @@ class OrderWorkflow:
             # Step 4: Send Confirmation
             confirmation_result = await workflow.execute_activity(
                 send_confirmation,
-                order,
+                order_data,  # Pass the dictionary
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(
                     maximum_attempts=5,

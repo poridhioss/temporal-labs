@@ -32,6 +32,11 @@ async def save_order(order_data: Dict[str, Any]) -> None:
     conn = await get_db_connection()
     try:
         async with conn.transaction():
+            # Convert ISO string to datetime if needed
+            created_at = order_data['created_at']
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            
             # Insert order
             await conn.execute(
                 """
@@ -42,7 +47,7 @@ async def save_order(order_data: Dict[str, Any]) -> None:
                 order_data['customer_email'],
                 order_data['total_amount'],
                 order_data['status'],
-                order_data['created_at']
+                created_at
             )
             
             # Insert order items
