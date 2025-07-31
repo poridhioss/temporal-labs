@@ -8,6 +8,7 @@ from models.order_models import Order, OrderStatus
 from workflows.child_workflows import ValidationWorkflow, PaymentWorkflow
 from activities.inventory_activity import reserve_stock, release_stock
 from activities.notification_activity import send_confirmation
+from activities.status_activity import update_order_status_in_db
 
 @workflow.defn
 class OrderWorkflow:
@@ -31,6 +32,11 @@ class OrderWorkflow:
             
             if not validation_result["is_valid"]:
                 self.order_status = OrderStatus.FAILED
+                await workflow.execute_activity(
+                    update_order_status_in_db,
+                    args=[order.order_id, self.order_status.value],
+                    start_to_close_timeout=timedelta(seconds=10)
+                )
                 return {
                     "success": False,
                     "order_id": order.order_id,
@@ -39,6 +45,11 @@ class OrderWorkflow:
                 }
             
             self.order_status = OrderStatus.VALIDATED
+            await workflow.execute_activity(
+                update_order_status_in_db,
+                args=[order.order_id, self.order_status.value],
+                start_to_close_timeout=timedelta(seconds=10)
+            )
             workflow.logger.info(f"Order {order.order_id} validated successfully")
             
             # Step 2: Reserve Stock
@@ -54,6 +65,11 @@ class OrderWorkflow:
             
             if not reservation_result.success:
                 self.order_status = OrderStatus.FAILED
+                await workflow.execute_activity(
+                    update_order_status_in_db,
+                    args=[order.order_id, self.order_status.value],
+                    start_to_close_timeout=timedelta(seconds=10)
+                )
                 return {
                     "success": False,
                     "order_id": order.order_id,
@@ -66,6 +82,11 @@ class OrderWorkflow:
             
             # Step 3: Process Payment using child workflow
             self.order_status = OrderStatus.PAYMENT_PROCESSING
+            await workflow.execute_activity(
+                update_order_status_in_db,
+                args=[order.order_id, self.order_status.value],
+                start_to_close_timeout=timedelta(seconds=10)
+            )
             payment_result = await workflow.execute_child_workflow(
                 PaymentWorkflow.run,
                 order,
@@ -77,6 +98,11 @@ class OrderWorkflow:
                 # Compensate: Release reserved stock
                 await self._compensate_stock_reservation(order)
                 self.order_status = OrderStatus.FAILED
+                await workflow.execute_activity(
+                    update_order_status_in_db,
+                    args=[order.order_id, self.order_status.value],
+                    start_to_close_timeout=timedelta(seconds=10)
+                )
                 return {
                     "success": False,
                     "order_id": order.order_id,
@@ -85,6 +111,11 @@ class OrderWorkflow:
                 }
             
             self.order_status = OrderStatus.PAYMENT_COMPLETED
+            await workflow.execute_activity(
+                update_order_status_in_db,
+                args=[order.order_id, self.order_status.value],
+                start_to_close_timeout=timedelta(seconds=10)
+            )
             workflow.logger.info(f"Payment processed for order {order.order_id}")
             
             # Step 4: Send Confirmation
@@ -99,6 +130,11 @@ class OrderWorkflow:
             )
             
             self.order_status = OrderStatus.CONFIRMED
+            await workflow.execute_activity(
+                update_order_status_in_db,
+                args=[order.order_id, self.order_status.value],
+                start_to_close_timeout=timedelta(seconds=10)
+            )
             
             return {
                 "success": True,
@@ -113,6 +149,11 @@ class OrderWorkflow:
             workflow.logger.error(f"Order processing failed: {str(e)}")
             await self._compensate_stock_reservation(order)
             self.order_status = OrderStatus.FAILED
+            await workflow.execute_activity(
+                update_order_status_in_db,
+                args=[order.order_id, self.order_status.value],
+                start_to_close_timeout=timedelta(seconds=10)
+            )
             return {
                 "success": False,
                 "order_id": order.order_id,

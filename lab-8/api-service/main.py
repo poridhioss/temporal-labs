@@ -8,9 +8,11 @@ import os
 import sys
 
 # Add the order-service path to import models
-sys.path.append('/app/../order-service')
+sys.path.append('/app/order-service')
 
 from database import get_inventory, save_order, get_order_status
+from models.order_models import Order, OrderItem, OrderStatus
+from workflows.order_workflow import OrderWorkflow
 
 app = FastAPI(title="Order Processing API", description="Real-world order processing system using Temporal")
 temporal_client = None

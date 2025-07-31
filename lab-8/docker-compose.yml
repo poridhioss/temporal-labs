@@ -83,6 +83,7 @@ services:
       - "8000:8000"
     volumes:
       - ./api-service:/app
+      - ./order-service:/app/order-service
     depends_on:
       temporal:
         condition: service_healthy

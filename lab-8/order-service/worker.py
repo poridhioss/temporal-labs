@@ -11,6 +11,7 @@ from activities.validation_activity import validate_order_items
 from activities.inventory_activity import reserve_stock, release_stock
 from activities.payment_activity import process_payment
 from activities.notification_activity import send_confirmation
+from activities.status_activity import update_order_status_in_db
 
 async def main():
     """Start the worker"""
@@ -27,7 +28,8 @@ async def main():
             reserve_stock,
             release_stock,
             process_payment,
-            send_confirmation
+            send_confirmation,
+            update_order_status_in_db
         ]
     )
     
