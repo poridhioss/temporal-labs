@@ -143,7 +143,7 @@ graph TD
 ### 3. **Payment Processing** (Child Workflow)
 - Simulates payment gateway integration
 - Implements retry logic for transient failures
-- Handles different failure scenarios (80% success rate for demo)
+- Handles different failure scenarios (e.g., insufficient funds, gateway errors)
 - Returns transaction ID on success
 
 ### 4. **Order Confirmation** (Activity)

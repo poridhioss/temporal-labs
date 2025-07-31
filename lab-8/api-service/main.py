@@ -96,19 +96,27 @@ async def create_order(order_request: OrderRequest):
         # Save order to database
         await save_order(order_data)
         
-        # Start workflow using Temporal CLI approach (simplified for demo)
-        # In production, you would import the Order models and start the workflow properly
-        workflow_id = f"order-workflow-{order_id}"
-        
-        # For this demo, we'll simulate workflow start and return immediately
-        # In a real implementation, you would:
-        # 1. Import Order and OrderItem models
-        # 2. Create workflow order object  
-        # 3. Start workflow with temporal_client.start_workflow()
+        # Create the Order object for the workflow
+        workflow_order = Order(
+            order_id=order_id,
+            customer_email=order_request.customer_email,
+            items=[OrderItem(**item) for item in order_items],
+            total_amount=total,
+            status=OrderStatus.PENDING,
+            created_at=datetime.now()
+        )
+
+        # Start the workflow
+        handle = await temporal_client.start_workflow(
+            OrderWorkflow.process_order,
+            workflow_order,
+            id=f"order-workflow-{order_id}",
+            task_queue="order-processing-queue",
+        )
         
         return {
             "order_id": order_id,
-            "workflow_id": workflow_id,
+            "workflow_id": handle.id,
             "status": "processing",
             "total_amount": total,
             "message": "Order created and processing started",
@@ -134,17 +142,15 @@ async def get_order(order_id: str):
         workflow_status = {}
         
         try:
-            # In production, you would query the workflow status
-            # handle = temporal_client.get_workflow_handle(workflow_id)
-            # workflow_status = await handle.query("get_order_status")
-            workflow_status = {"workflow_status": "Check Temporal Web UI for detailed status"}
-        except:
-            # Workflow might be completed or not found
-            pass
+            handle = temporal_client.get_workflow_handle(workflow_id)
+            workflow_status = await handle.query(OrderWorkflow.get_order_status)
+        except Exception as e:
+            # Workflow might be completed or not found, this is not a fatal error
+            workflow_status = {"workflow_query_error": str(e)}
         
         # Combine order info with workflow status
-        result = {**order_info, **workflow_status}
-        return result
+        order_info.update(workflow_status)
+        return order_info
         
     except HTTPException:
         raise
